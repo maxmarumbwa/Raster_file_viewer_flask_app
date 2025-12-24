@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head><title>NDVI</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>#m{height:100vh;}</style></head>
+<body>
+<div id="m"></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const map = L.map('m').setView([-18.7, 29.5], 7);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap'
+}).addTo(map);
+// Hardcoded image bounds for Zimbabwe (adjust if needed)
+const zimBounds = L.latLngBounds([[ -22.5, 25.0 ], [ -15.5, 33.5 ]]);
+// Use your Flask API endpoint (ensure Flask is running!)
+L.imageOverlay('http://localhost:5000/api/ndvi_image/2002-01-11', 
+               zimBounds, {opacity:0.7}).addTo(map);
+</script>
+</body>
+</html>
