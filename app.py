@@ -82,5 +82,25 @@ def get_clipped_ndvi(date_str):
         abort(500, description=f"Server error: {str(e)}")
 
 
+import glob
+
+
+@app.route("/api/available_dates")
+def get_available_dates():
+    tif_folder = os.path.join(os.path.dirname(__file__), "static", "data", "tif")
+    print(tif_folder)
+    files = glob.glob(os.path.join(tif_folder, "gsod_*.tif"))
+    dates = []
+    for f in files:
+        try:
+            # Extract date from filename like 'gsod_20021021.tif'
+            date_str = os.path.basename(f)[5:-4]  # get '20021021'
+            date_obj = datetime.strptime(date_str, "%Y%m%d")
+            dates.append(date_obj.strftime("%Y-%m-%d"))
+        except:
+            continue
+    return jsonify(sorted(dates))
+
+
 if __name__ == "__main__":
     app.run(debug=True)
