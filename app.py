@@ -1,6 +1,9 @@
-from flask import Flask, send_file, abort
+from flask import Flask, send_file, abort, render_template
 import os
 from datetime import datetime
+import rasterio
+import json
+from flask import jsonify
 
 app = Flask(__name__)
 
@@ -20,6 +23,45 @@ def get_png(date_str):
 
     except:
         abort(500)
+
+
+# NDVI DATA ENDPOINT - Returns image URL and geographic bounds
+@app.route("/api/ndvi_data/<date_str>")
+def get_ndvi_data(date_str):
+    """Return image URL and its geographic bounds."""
+    try:
+        date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+        file_name = f"gsod_{date_obj.strftime('%Y%m%d')}.png"
+        file_path = os.path.join("static", "data", "png", file_name)
+        print(f"Looking for file at: {file_path}")
+
+        if not os.path.exists(file_path):
+            abort(404)
+
+        # Read bounds from the georeferenced PNG
+        with rasterio.open(file_path) as src:
+            bounds = src.bounds  # (left, bottom, right, top)
+
+        return jsonify(
+            {
+                "image_url": f"/api/ndvi_png/{date_str}",
+                "bounds": {
+                    "south": bounds.bottom,
+                    "west": bounds.left,
+                    "north": bounds.top,
+                    "east": bounds.right,
+                },
+            }
+        )
+    except Exception as e:
+        print(f"Error: {e}")
+        abort(500)
+
+
+@app.route("/")
+def index():
+    """Serve the main map page."""
+    return render_template("index.html")
 
 
 # ============================================================================
