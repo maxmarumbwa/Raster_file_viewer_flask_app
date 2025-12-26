@@ -58,10 +58,17 @@ def get_ndvi_data(date_str):
         abort(500)
 
 
+# Hardcoded bounds as a Python list for Leaflet
+IMAGE_BOUNDS = [
+    [-35.00446428571232, 10.995535714285715],  # [south, west]
+    [-7.995535714285042, 41.00446428571284],
+]  # [north, east]
+
+
 @app.route("/")
 def index():
-    """Serve the main map page."""
-    return render_template("index.html")
+    """The ONE AND ONLY route - renders HTML with embedded bounds"""
+    return render_template("index.html", bounds=IMAGE_BOUNDS)
 
 
 # ============================================================================

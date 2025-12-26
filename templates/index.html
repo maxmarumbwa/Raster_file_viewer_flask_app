@@ -12,10 +12,30 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap'
 }).addTo(map);
 // Hardcoded image bounds for Zimbabwe (adjust if needed)
-const zimBounds = L.latLngBounds([[ -22.5, 25.0 ], [ -15.5, 33.5 ]]);
+const SADC = L.latLngBounds([[ -35.00446428571232, 10.995535714285715], [ -7.995535714285042, 41.00446428571284 ]]);
+const zimBounds = L.latLngBounds([[ -23.00446426, 24.995535714], [ -14.995535714, 34.004464257 ]]);
 // Use your Flask API endpoint (ensure Flask is running!)
-L.imageOverlay('http://localhost:5000/api/ndvi_png/2001-01-11', 
+L.imageOverlay('http://localhost:5000/api/ndvi_png/2010-01-01', 
                zimBounds, {opacity:0.7}).addTo(map);
+
+fetch('/static/data/zim_admin1.geojson')
+    .then(response => response.json())
+    .then(data => {
+        L.geoJSON(data, {
+            style: {
+                color: '#FF0000',
+                weight: 1,
+                fillOpacity: 0
+            },
+            onEachFeature: function(feature, layer) {
+                // Show province name on hover
+                if (feature.properties && feature.properties.ADM1_EN) {
+                    layer.bindTooltip(feature.properties.ADM1_EN);
+                }
+            }
+        }).addTo(map);
+    });
+
 </script>
 </body>
 </html>
