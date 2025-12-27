@@ -8,17 +8,44 @@
 <div id="m"></div>
 
 <!-- Legend Container -->
-<div id="legend" style="position:absolute; bottom:20px; right:10px; background:white; padding:10px; border-radius:5px; box-shadow:0 0 10px rgba(0,0,0,0.2); z-index:1000; font-size:12px;">
-    <strong>NDVI Legend</strong>
-    <div style="height:10px; width:100%; background:linear-gradient(to right, #d73027, #fc8d59, #fee08b, #d9ef8b, #91cf60, #1a9850); margin:5px 0;"></div>
-    <div style="display:flex; justify-content:space-between;">
-        <span>-1.0</span>
-        <span>0.0</span>
-        <span>+1.0</span>
+<div id="legend"
+     style="
+        position:absolute;
+        bottom:20px;
+        right:10px;
+        background:white;
+        padding:10px;
+        border-radius:5px;
+        box-shadow:0 0 10px rgba(0,0,0,0.2);
+        z-index:1000;
+        font-size:12px;
+        line-height:1.4;
+     ">
+  <strong>Rainfall (mm)</strong>
+
+  <div style="margin-top:6px;">
+    <div style="display:flex; align-items:center;">
+      <span style="width:18px;height:12px;background:#deebf7;display:inline-block;margin-right:6px;"></span>
+      0 – 25 (Very Low)
     </div>
-    <div style="margin-top:5px;">
-        <div>Water/Snow • Bare Soil • Sparse • Moderate • Dense Vegetation</div>
+
+    <div style="display:flex; align-items:center;">
+      <span style="width:18px;height:12px;background:#9ecae1;display:inline-block;margin-right:6px;"></span>
+      25 – 75 (Low)
     </div>
+
+    <div style="display:flex; align-items:center;">
+      <span style="width:18px;height:12px;background:#3182bd;display:inline-block;margin-right:6px;"></span>
+      75 – 150 (Moderate)
+    </div>
+
+    <div style="display:flex; align-items:center;">
+      <span style="width:18px;height:12px;background:#08306b;display:inline-block;margin-right:6px;"></span>
+      150 – 250 (High)
+    </div>
+  </div>
+</div>
+
 </div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>

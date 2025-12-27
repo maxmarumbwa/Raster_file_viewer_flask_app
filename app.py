@@ -169,6 +169,7 @@ from PIL import Image
 import numpy as np
 import io
 
+
 @app.route("/api/classified_rainfall_tif/<date_str>")
 def classified_rainfall_tif(date_str):
     """
@@ -208,6 +209,45 @@ def classified_rainfall_tif(date_str):
 
     except Exception as e:
         print(e)
+        abort(500)
+
+
+# ============================================================================
+# Rainfall Metadata  API  endpoint-
+# ============================================================================
+#
+@app.route("/api/rainfall_metadata/<date_str>")
+def get_rainfall_metadata(date_str):
+    """Just return the metadata for a rainfall file"""
+    try:
+        date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+        file_name = f"gsod_{date_obj.strftime('%Y%m%d')}.png"
+        file_path = os.path.join(
+            os.getcwd(), "static", "data", "rain", "png", file_name
+        )
+        print(f"Looking for rainfall file at: {file_path}")
+        if not os.path.exists(file_path):
+            abort(404)
+
+        img = Image.open(file_path)
+        print(f"Image info: {img.info}")
+        metadata = img.info
+
+        # Return as JSON
+        return jsonify(
+            {
+                "date": date_str,
+                "filename": file_name,
+                "actual_min": float(metadata.get("actual_min", 0)),
+                "actual_max": float(metadata.get("actual_max", 250)),
+                "units": metadata.get("units", "mm"),
+                "original_file": metadata.get("original_file", ""),
+                "crs": metadata.get("crs", ""),
+            }
+        )
+
+    except Exception as e:
+        print(f"Error getting rainfall metadata: {e}")
         abort(500)
 
 
