@@ -1,5 +1,6 @@
 env
 static/data/tif/
+static/data/cog/
 static/data/png/
 static/data/rain/png/
 .env
