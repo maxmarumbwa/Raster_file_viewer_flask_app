@@ -1,4 +1,5 @@
 env
 static/data/tif/
 static/data/png/
+static/data/rain/png/
 .env

@@ -115,66 +115,49 @@ def get_available_dates():
 
 
 # ============================================================================
-# Additional API Endpoint - Colored NDVI Image
+# Image classification API  endpoint
 # ============================================================================
 from PIL import Image
 import numpy as np
 import io
 
-
-def ndvi_to_color(ndvi_value):
-    """Convert NDVI value to RGB color"""
-    if ndvi_value < -1:
-        return (215, 48, 39)  # Red - Water/Snow
-    elif ndvi_value < 0.2:
-        return (252, 141, 89)  # Orange - Bare soil
-    elif ndvi_value < 0.4:
-        return (254, 224, 139)  # Light yellow - Sparse vegetation
-    elif ndvi_value < 0.6:
-        return (217, 239, 139)  # Light green - Moderate vegetation
-    elif ndvi_value < 0.7:
-        return (145, 207, 96)  # Green - Dense vegetation
-    else:
-        return (26, 152, 80)  # Dark green - Very dense vegetation
-
-
-@app.route("/api/colored_ndvi/<date_str>")
-def get_colored_ndvi(date_str):
-    """Return NDVI image colored server-side"""
+@app.route("/api/classified_rainfall/<date_str>")
+def classified_rainfall(date_str):
+    """
+    Rainfall classes (mm):
+    0–25   Very Low
+    25–75  Low
+    75–150 Moderate
+    150–250 High
+    """
     try:
+        # Expect date_str = YYYY-MM-DD
         date_obj = datetime.strptime(date_str, "%Y-%m-%d")
         file_name = f"gsod_{date_obj.strftime('%Y%m%d')}.png"
-        file_path = os.path.join(os.getcwd(), "static", "data", "png", file_name)
+        file_path = os.path.join("static", "data", "rain", "png", file_name)
 
         if not os.path.exists(file_path):
             abort(404)
 
-        # Open and process image
-        img = Image.open(file_path).convert("L")  # Convert to grayscale
-        img_array = np.array(img)
+        img = np.array(Image.open(file_path).convert("L"))
+        rainfall = (img / 255.0) * 250  # mm
 
-        # Convert to NDVI values (assuming 0-255 represents -1 to 1)
-        ndvi_array = (img_array / 255.0) * 2 - 1
+        out = np.zeros((*img.shape, 3), dtype=np.uint8)
 
-        # Create colored image
-        colored = np.zeros((img_array.shape[0], img_array.shape[1], 3), dtype=np.uint8)
+        # Classified colors (vectorized)
+        out[(rainfall <= 25)] = (222, 235, 247)  # Very Low
+        out[(rainfall > 25) & (rainfall <= 75)] = (158, 202, 225)  # Low
+        out[(rainfall > 75) & (rainfall <= 150)] = (49, 130, 189)  # Moderate
+        out[(rainfall > 150)] = (8, 48, 107)  # High
 
-        for i in range(img_array.shape[0]):
-            for j in range(img_array.shape[1]):
-                colored[i, j] = ndvi_to_color(ndvi_array[i, j])
+        buf = io.BytesIO()
+        Image.fromarray(out).save(buf, "PNG")
+        buf.seek(0)
 
-        # Convert back to image
-        colored_img = Image.fromarray(colored, "RGB")
-
-        # Save to bytes
-        img_io = io.BytesIO()
-        colored_img.save(img_io, "PNG")
-        img_io.seek(0)
-
-        return send_file(img_io, mimetype="image/png")
+        return send_file(buf, mimetype="image/png")
 
     except Exception as e:
-        print(f"Error: {e}")
+        print(e)
         abort(500)
 
 
