@@ -115,11 +115,12 @@ def get_available_dates():
 
 
 # ============================================================================
-# Image classification API  endpoint
+# Image classification API  endpoint- PNG based
 # ============================================================================
 from PIL import Image
 import numpy as np
 import io
+
 
 @app.route("/api/classified_rainfall/<date_str>")
 def classified_rainfall(date_str):
@@ -149,6 +150,55 @@ def classified_rainfall(date_str):
         out[(rainfall > 25) & (rainfall <= 75)] = (158, 202, 225)  # Low
         out[(rainfall > 75) & (rainfall <= 150)] = (49, 130, 189)  # Moderate
         out[(rainfall > 150)] = (8, 48, 107)  # High
+
+        buf = io.BytesIO()
+        Image.fromarray(out).save(buf, "PNG")
+        buf.seek(0)
+
+        return send_file(buf, mimetype="image/png")
+
+    except Exception as e:
+        print(e)
+        abort(500)
+
+
+# ============================================================================
+# Image classification API  endpoint- GEOTIFF based
+# ============================================================================
+from PIL import Image
+import numpy as np
+import io
+
+@app.route("/api/classified_rainfall_tif/<date_str>")
+def classified_rainfall_tif(date_str):
+    """
+    Rainfall classes (mm):
+    0–25   Very Low
+    25–75  Low
+    75–150 Moderate
+    150–250 High
+    """
+    try:
+        date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+        file_name = f"gsod_{date_obj.strftime('%Y%m%d')}.tif"
+        file_path = os.path.join("static", "data", "tif", file_name)
+
+        if not os.path.exists(file_path):
+            abort(404)
+
+        with rasterio.open(file_path) as src:
+            data = src.read(1).astype("float32")
+            nodata = src.nodata
+            if nodata is not None:
+                data[data == nodata] = np.nan
+
+        out = np.zeros((*data.shape, 3), dtype=np.uint8)
+        print("Data min/max:", np.nanmin(data), np.nanmax(data))
+        # Classified colors (mm-based)
+        out[(data <= 25)] = (222, 235, 247)  # Very Low
+        out[(data > 25) & (data <= 75)] = (158, 202, 225)  # Low
+        out[(data > 75) & (data <= 150)] = (49, 130, 189)  # Moderate
+        out[(data > 150)] = (8, 48, 107)  # High
 
         buf = io.BytesIO()
         Image.fromarray(out).save(buf, "PNG")
