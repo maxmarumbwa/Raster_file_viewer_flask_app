@@ -1,11 +1,28 @@
 <!DOCTYPE html>
 <html>
-<head><title>NDVI</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-<style>#m{height:100vh;}</style></head>
+<head>
+    <title>NDVI / Rainfall</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <style>
+        #m {height:100vh;}
+        #datePicker {
+            position:absolute;
+            top:10px;
+            left:10px;
+            z-index:1100;
+            background:white;
+            padding:5px 8px;
+            border-radius:4px;
+            box-shadow:0 0 5px rgba(0,0,0,0.3);
+        }
+    </style>
+</head>
 
 <body>
 <div id="m"></div>
+
+<!-- Simple date input -->
+<input type="date" id="datePicker" />
 
 <!-- Legend Container -->
 <div id="legend"
@@ -28,17 +45,14 @@
       <span style="width:18px;height:12px;background:#deebf7;display:inline-block;margin-right:6px;"></span>
       0 – 25 (Very Low)
     </div>
-
     <div style="display:flex; align-items:center;">
       <span style="width:18px;height:12px;background:#9ecae1;display:inline-block;margin-right:6px;"></span>
       25 – 75 (Low)
     </div>
-
     <div style="display:flex; align-items:center;">
       <span style="width:18px;height:12px;background:#3182bd;display:inline-block;margin-right:6px;"></span>
       75 – 150 (Moderate)
     </div>
-
     <div style="display:flex; align-items:center;">
       <span style="width:18px;height:12px;background:#08306b;display:inline-block;margin-right:6px;"></span>
       150 – 250 (High)
@@ -46,38 +60,51 @@
   </div>
 </div>
 
-</div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const map = L.map('m').setView([-18.7, 29.5], 7);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap'
 }).addTo(map);
-// Hardcoded image bounds for Zimbabwe (adjust if needed)
-const zimBounds = L.latLngBounds([[ -35.00446428571232, 10.995535714285715], [ -7.995535714285042, 41.00446428571284 ]]);
-//const zimBounds = L.latLngBounds([[ -23.00446426, 24.995535714], [ -14.995535714, 34.004464257 ]]);
-// Use your Flask API endpoint (ensure Flask is running!)
-L.imageOverlay('http://localhost:5000/api/classified_rainfall_tif/2001-12-11', 
-               zimBounds, {opacity:0.7}).addTo(map);
 
+// Hardcoded Zimbabwe bounds
+const zimBounds = L.latLngBounds([[-35.004, 10.995], [-7.995, 41.004]]);
+
+let rainfallLayer = L.imageOverlay(
+    'http://localhost:5000/api/classified_rainfall_tif/2001-12-11',
+    zimBounds,
+    {opacity:0.7}
+).addTo(map);
+
+// Load admin boundaries
 fetch('/static/data/zim_admin1.geojson')
-    .then(response => response.json())
+    .then(resp => resp.json())
     .then(data => {
         L.geoJSON(data, {
-            style: {
-                color: '#FF0000',
-                weight: 1,
-                fillOpacity: 0
-            },
-            onEachFeature: function(feature, layer) {
-                // Show province name on hover
-                if (feature.properties && feature.properties.ADM1_EN) {
+            style: {color:'#FF0000', weight:1, fillOpacity:0},
+            onEachFeature: (feature, layer) => {
+                if(feature.properties && feature.properties.ADM1_EN){
                     layer.bindTooltip(feature.properties.ADM1_EN);
                 }
             }
         }).addTo(map);
     });
 
+// --- DATE PICKER LOGIC ---
+const picker = document.getElementById('datePicker');
+
+picker.addEventListener('change', () => {
+    const selectedDate = picker.value; // format YYYY-MM-DD
+    if(!selectedDate) return;
+
+    const url = `http://localhost:5000/api/classified_rainfall_tif/${selectedDate}`;
+
+    // Remove previous layer
+    if(rainfallLayer) map.removeLayer(rainfallLayer);
+
+    // Add new rainfall layer
+    rainfallLayer = L.imageOverlay(url, zimBounds, {opacity:0.7}).addTo(map);
+});
 </script>
 </body>
 </html>
