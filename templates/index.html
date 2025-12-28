@@ -22,14 +22,30 @@
 <div id="m"></div>
 
 <!-- Simple date input -->
-<input type="date" id="datePicker" />
+<div id="dateControl"
+     style="
+        position:absolute;
+        top:20px;
+        right:50px;
+        z-index:1100;
+        background:white;
+        padding:8px;
+        border-radius:4px;
+        box-shadow:0 0 5px rgba(0,0,0,0.3);
+        font-size:12px;
+     ">
+  <select id="yearSel"></select>
+  <select id="monthSel"></select>
+  <select id="daySel"></select>
+</div>
+
 
 <!-- Legend Container -->
 <div id="legend"
      style="
         position:absolute;
         bottom:20px;
-        right:10px;
+        right:40px;
         background:white;
         padding:10px;
         border-radius:5px;
@@ -90,21 +106,52 @@ fetch('/static/data/zim_admin1.geojson')
         }).addTo(map);
     });
 
-// --- DATE PICKER LOGIC ---
-const picker = document.getElementById('datePicker');
+/* -----------------------------
+   Populate dropdowns
+------------------------------*/
+const yearSel = document.getElementById("yearSel");
+const monthSel = document.getElementById("monthSel");
+const daySel = document.getElementById("daySel");
 
-picker.addEventListener('change', () => {
-    const selectedDate = picker.value; // format YYYY-MM-DD
-    if(!selectedDate) return;
+// Years (adjust range as needed)
+for (let y = 2000; y <= 2025; y++) {
+  yearSel.add(new Option(y, y));
+}
 
-    const url = `http://localhost:5000/api/classified_rainfall_tif/${selectedDate}`;
+// Months
+for (let m = 1; m <= 12; m++) {
+  const mm = String(m).padStart(2, "0");
+  monthSel.add(new Option(mm, mm));
+}
 
-    // Remove previous layer
-    if(rainfallLayer) map.removeLayer(rainfallLayer);
-
-    // Add new rainfall layer
-    rainfallLayer = L.imageOverlay(url, zimBounds, {opacity:0.7}).addTo(map);
+// Fixed days: 01, 11, 21
+["01", "11", "21"].forEach(d => {
+  daySel.add(new Option(d, d));
 });
+
+// Default selection
+yearSel.value = "2001";
+monthSel.value = "12";
+daySel.value = "11";
+
+/* -----------------------------
+   Rainfall layer handling
+------------------------------*/
+function loadRainfall() {
+  const dateStr = `${yearSel.value}-${monthSel.value}-${daySel.value}`;
+  const url = `http://localhost:5000/api/classified_rainfall_tif/${dateStr}`;
+
+  if (rainfallLayer) map.removeLayer(rainfallLayer);
+  rainfallLayer = L.imageOverlay(url, zimBounds, { opacity: 0.7 }).addTo(map);
+}
+
+// Reload when any dropdown changes
+yearSel.onchange = loadRainfall;
+monthSel.onchange = loadRainfall;
+daySel.onchange = loadRainfall;
+
+// Initial load
+loadRainfall();
 </script>
 </body>
 </html>
