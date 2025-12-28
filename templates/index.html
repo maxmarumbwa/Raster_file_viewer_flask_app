@@ -1,168 +1,127 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>NDVI / Rainfall</title>
+    <title>Rainfall Dashboard</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <style>
-        #m {height:100vh;}
-        #datePicker {
-            position:absolute;
-            top:10px;
-            left:10px;
-            z-index:1100;
-            background:white;
-            padding:5px 8px;
-            border-radius:4px;
-            box-shadow:0 0 5px rgba(0,0,0,0.3);
+        #map {height:100vh;}
+        #controls, #legend, #tooltip {
+            position: absolute;
+            background: white;
+            padding: 8px;
+            border-radius: 4px;
+            box-shadow: 0 0 5px rgba(0,0,0,0.3);
+            font-size: 12px;
+            z-index: 1100;
         }
+        #controls {top: 10px; left: 10px;}
+        #legend {bottom: 20px; right: 20px;}
+        #tooltip {top: 10px; right: 10px;}
     </style>
 </head>
-
 <body>
-<div id="m"></div>
 
-<!-- Simple date input -->
-<div id="dateControl"
-     style="
-        position:absolute;
-        top:20px;
-        right:50px;
-        z-index:1100;
-        background:white;
-        padding:8px;
-        border-radius:4px;
-        box-shadow:0 0 5px rgba(0,0,0,0.3);
-        font-size:12px;
-     ">
-  <select id="yearSel"></select>
-  <select id="monthSel"></select>
-  <select id="daySel"></select>
+<div id="map"></div>
+
+<!-- Date selectors -->
+<div id="controls">
+    <select id="yearSel"></select>
+    <select id="monthSel"></select>
+    <select id="daySel"></select>
+    <button id="loadBtn">Load Layer</button>
+    <br/>
+    <input type="checkbox" id="legendToggle" checked/> Show Legend
 </div>
 
-
-<!-- Legend Container -->
-<div id="legend"
-     style="
-        position:absolute;
-        bottom:20px;
-        right:40px;
-        background:white;
-        padding:10px;
-        border-radius:5px;
-        box-shadow:0 0 10px rgba(0,0,0,0.2);
-        z-index:1000;
-        font-size:12px;
-        line-height:1.4;
-     ">
-  <strong>Rainfall (mm)</strong>
-
-  <div style="margin-top:6px;">
-    <div style="display:flex; align-items:center;">
-      <span style="width:18px;height:12px;background:#deebf7;display:inline-block;margin-right:6px;"></span>
-      0 – 25 (Very Low)
+<!-- Legend -->
+<div id="legend">
+    <strong>Rainfall (mm)</strong>
+    <div style="margin-top:6px;">
+        <div style="display:flex; align-items:center;">
+            <span style="width:18px;height:12px;background:#deebf7;display:inline-block;margin-right:6px;"></span>
+            0 – 25 (Very Low)
+        </div>
+        <div style="display:flex; align-items:center;">
+            <span style="width:18px;height:12px;background:#9ecae1;display:inline-block;margin-right:6px;"></span>
+            25 – 75 (Low)
+        </div>
+        <div style="display:flex; align-items:center;">
+            <span style="width:18px;height:12px;background:#3182bd;display:inline-block;margin-right:6px;"></span>
+            75 – 150 (Moderate)
+        </div>
+        <div style="display:flex; align-items:center;">
+            <span style="width:18px;height:12px;background:#08306b;display:inline-block;margin-right:6px;"></span>
+            150 – 250 (High)
+        </div>
     </div>
-    <div style="display:flex; align-items:center;">
-      <span style="width:18px;height:12px;background:#9ecae1;display:inline-block;margin-right:6px;"></span>
-      25 – 75 (Low)
-    </div>
-    <div style="display:flex; align-items:center;">
-      <span style="width:18px;height:12px;background:#3182bd;display:inline-block;margin-right:6px;"></span>
-      75 – 150 (Moderate)
-    </div>
-    <div style="display:flex; align-items:center;">
-      <span style="width:18px;height:12px;background:#08306b;display:inline-block;margin-right:6px;"></span>
-      150 – 250 (High)
-    </div>
-  </div>
 </div>
+
+<!-- Pixel info tooltip -->
+<div id="tooltip">Click on map to see rainfall time series</div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-const map = L.map('m').setView([-18.7, 29.5], 7);
+const map = L.map('map').setView([-18.7, 29.5], 7);
+
+// Base layer
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap'
 }).addTo(map);
 
-// Hardcoded Zimbabwe bounds
+// Zimbabwe bounds
 const zimBounds = L.latLngBounds([[-35.004, 10.995], [-7.995, 41.004]]);
 
-let rainfallLayer = L.imageOverlay(
-    'http://localhost:5000/api/classified_rainfall_tif/2001-12-11',
-    zimBounds,
-    {opacity:0.7}
-).addTo(map);
+let rainfallLayer = null;
 
-// Load admin boundaries
-fetch('/static/data/zim_admin1.geojson')
-    .then(resp => resp.json())
-    .then(data => {
-        L.geoJSON(data, {
-            style: {color:'#FF0000', weight:1, fillOpacity:0},
-            onEachFeature: (feature, layer) => {
-                if(feature.properties && feature.properties.ADM1_EN){
-                    layer.bindTooltip(feature.properties.ADM1_EN);
-                }
-            }
-        }).addTo(map);
-    });
-
-/* -----------------------------
-   Populate dropdowns
-------------------------------*/
+// Populate dropdowns
 const yearSel = document.getElementById("yearSel");
 const monthSel = document.getElementById("monthSel");
 const daySel = document.getElementById("daySel");
 
-// Years (adjust range as needed)
-for (let y = 2000; y <= 2025; y++) {
-  yearSel.add(new Option(y, y));
-}
+for(let y=2000; y<=2040; y++) yearSel.add(new Option(y, y));
+for(let m=1; m<=12; m++) monthSel.add(new Option(String(m).padStart(2,"0"), String(m).padStart(2,"0")));
+["01","11","21"].forEach(d=>daySel.add(new Option(d,d)));
 
-// Months
-for (let m = 1; m <= 12; m++) {
-  const mm = String(m).padStart(2, "0");
-  monthSel.add(new Option(mm, mm));
-}
+// Defaults
+yearSel.value="2001";
+monthSel.value="12";
+daySel.value="11";
 
-// Fixed days: 01, 11, 21
-["01", "11", "21"].forEach(d => {
-  daySel.add(new Option(d, d));
-});
-
-// Default selection
-yearSel.value = "2001";
-monthSel.value = "12";
-daySel.value = "11";
-
-/* -----------------------------
-   Rainfall layer handling
-------------------------------*/
+// Load rainfall layer
 function loadRainfall() {
-  const dateStr = `${yearSel.value}-${monthSel.value}-${daySel.value}`;
-  const url = `http://localhost:5000/api/classified_rainfall_tif/${dateStr}`;
-
-  if (rainfallLayer) map.removeLayer(rainfallLayer);
-  rainfallLayer = L.imageOverlay(url, zimBounds, { opacity: 0.7 }).addTo(map);
+    const dateStr = `${yearSel.value}-${monthSel.value}-${daySel.value}`;
+    const url = `http://localhost:5000/api/classified_rainfall_tif/${dateStr}`;
+    if(rainfallLayer) map.removeLayer(rainfallLayer);
+    rainfallLayer = L.imageOverlay(url, zimBounds, {opacity:0.7}).addTo(map);
 }
 
-// Reload when any dropdown changes
-yearSel.onchange = loadRainfall;
-monthSel.onchange = loadRainfall;
-daySel.onchange = loadRainfall;
-
-// Initial load
+document.getElementById("loadBtn").onclick = loadRainfall;
 loadRainfall();
 
+// Legend toggle
+document.getElementById("legendToggle").onchange = function() {
+    document.getElementById("legend").style.display = this.checked ? "block" : "none";
+}
 
-//-------------- ANALYTICS---------------
-//Get rainfall value on click
-map.on("click", e => {
-  fetch(`/api/rainfall_value?lat=${e.latlng.lat}&lon=${e.latlng.lng}&date=${dateStr}`)
-    .then(r => r.json())
-    .then(d => alert(`Rainfall: ${d.rainfall_mm} mm`));
+// Click for pixel time series
+map.on("click", async function(e){
+    const lat = e.latlng.lat.toFixed(5);
+    const lon = e.latlng.lng.toFixed(5);
+    const start_date = "2001-01-01";  // Example range
+    const end_date = "2001-12-21";
+
+    const url = `/api/rainfall_value_multiple?lat=${lat}&lon=${lon}&start_date=${start_date}&end_date=${end_date}`;
+    const resp = await fetch(url);
+    const data = await resp.json();
+
+    let tooltipHtml = `<strong>Rainfall time series at [${lat},${lon}]</strong><br/>`;
+    data.forEach(d => {
+        tooltipHtml += `${d.date}: ${d.rainfall_mm} mm<br/>`;
+    });
+
+    const tooltipDiv = document.getElementById("tooltip");
+    tooltipDiv.innerHTML = tooltipHtml;
 });
-
-
 </script>
 </body>
 </html>
