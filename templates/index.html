@@ -152,6 +152,17 @@ daySel.onchange = loadRainfall;
 
 // Initial load
 loadRainfall();
+
+
+//-------------- ANALYTICS---------------
+//Get rainfall value on click
+map.on("click", e => {
+  fetch(`/api/rainfall_value?lat=${e.latlng.lat}&lon=${e.latlng.lng}&date=${dateStr}`)
+    .then(r => r.json())
+    .then(d => alert(`Rainfall: ${d.rainfall_mm} mm`));
+});
+
+
 </script>
 </body>
 </html>

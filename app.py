@@ -1,4 +1,4 @@
-from flask import Flask, send_file, abort, render_template
+from flask import Flask, send_file, abort, render_template, request
 import os
 from datetime import datetime
 import rasterio
@@ -249,6 +249,29 @@ def get_rainfall_metadata(date_str):
     except Exception as e:
         print(f"Error getting rainfall metadata: {e}")
         abort(500)
+
+
+###################------------ ANALYTICS API------------##################
+###################------------ ANALYTICS API------------##################
+
+
+# ============================================================================
+# Get rainfal value at pixel level  API  endpoint-
+# ============================================================================
+#
+@app.route("/api/rainfall_value")
+def rainfall_value():
+    lat = float(request.args.get("lat"))
+    lon = float(request.args.get("lon"))
+    date = request.args.get("date")
+
+    file = f"static/data/tif/gsod_{date.replace('-', '')}.tif"
+    print(f"Looking for rainfall file at: {file}")
+    with rasterio.open(file) as src:
+        row, col = src.index(lon, lat)
+        value = src.read(1)[row, col]
+
+    return {"rainfall_mm": float(value)}
 
 
 if __name__ == "__main__":
