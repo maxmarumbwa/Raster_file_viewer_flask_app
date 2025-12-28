@@ -258,9 +258,9 @@ def get_rainfall_metadata(date_str):
 # ============================================================================
 # Get rainfal value at pixel level  API  endpoint-
 # ============================================================================
-#
-@app.route("/api/rainfall_value")
-def rainfall_value():
+# http://localhost:5000/api/rainfall_value_single?lat=-12&lon=27&date=2005-03-21
+@app.route("/api/rainfall_value_single")
+def rainfall_value_single():
     lat = float(request.args.get("lat"))
     lon = float(request.args.get("lon"))
     date = request.args.get("date")
@@ -272,6 +272,93 @@ def rainfall_value():
         value = src.read(1)[row, col]
 
     return {"rainfall_mm": float(value)}
+
+
+# ============API to get val by start and end data =====================
+# http://localhost:5000/api/rainfall_value_multiple?lat=-12&lon=27&start_date=2002-03-21&end_date=2003-06-01
+@app.route("/api/rainfall_value_multiple")
+def rainfall_value_multiple():
+    import rasterio
+    from datetime import datetime, timedelta
+    import os
+
+    lat = float(request.args.get("lat"))
+    lon = float(request.args.get("lon"))
+    start_date = request.args.get("start_date")  # e.g., "2001-12-01"
+    end_date = request.args.get("end_date") or start_date  # default to start_date
+
+    start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+    end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+
+    values = []
+
+    current = start_dt
+    while current <= end_dt:
+        date_str = current.strftime("%Y%m%d")
+        file_path = os.path.join("static", "data", "cog", f"gsod_{date_str}_cog.tif")
+        if os.path.exists(file_path):
+            with rasterio.open(file_path) as src:
+                row, col = src.index(lon, lat)
+                value = src.read(1)[row, col]
+                values.append(
+                    {"date": current.strftime("%Y-%m-%d"), "rainfall_mm": float(value)}
+                )
+        # Increment to next dekad
+        day = current.day
+        if day == 1:
+            current = current.replace(day=11)
+        elif day == 11:
+            current = current.replace(day=21)
+        else:  # day == 21
+            # move to first dekad of next month
+            if current.month == 12:
+                current = current.replace(year=current.year + 1, month=1, day=1)
+            else:
+                current = current.replace(month=current.month + 1, day=1)
+
+    return values
+
+
+# ============================================================================
+# ============ Convert single raster to COG if not exists ============
+# ============================================================================
+
+
+def ensure_cog(file_name, input_dir="static/data/tif", output_dir="static/data/cog"):
+    os.makedirs(output_dir, exist_ok=True)
+
+    src_path = os.path.join(input_dir, file_name)
+    cog_name = file_name.replace(".tif", "_cog.tif")
+    cog_path = os.path.join(output_dir, cog_name)
+
+    if not os.path.exists(cog_path):
+        with rasterio.open(src_path) as src:
+            profile = src.profile.copy()
+            profile.update(
+                driver="GTiff",
+                tiled=True,
+                blockxsize=512,
+                blockysize=512,
+                compress="deflate",
+                interleave="band",
+            )
+            rio_copy(src, cog_path, **profile, copy_src_overviews=True)
+            print(f"COG created: {cog_path}")
+
+    return cog_path
+
+
+# ============ API to serve COG ============
+@app.route("/api/rainfall_cog/<date_str>")
+def rainfall_cog(date_str):
+    # Expect date format YYYY-MM-DD
+    file_name = f"gsod_{date_str.replace('-', '')}.tif"
+    cog_path = ensure_cog(file_name)
+
+    if not os.path.exists(cog_path):
+        abort(404)
+
+    return send_file(cog_path, mimetype="image/tiff", as_attachment=False)
 
 
 if __name__ == "__main__":
