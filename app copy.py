@@ -4,11 +4,6 @@ from datetime import datetime
 import rasterio
 import json
 from flask import jsonify
-import glob
-import geopandas as gpd
-import numpy as np
-from rasterio.mask import mask
-
 
 app = Flask(__name__)
 
@@ -19,9 +14,8 @@ def get_png(date_str):
     try:
         date_obj = datetime.strptime(date_str, "%Y-%m-%d")
         file_name = f"gsod_{date_obj.strftime('%Y%m%d')}.png"
-        file_path = os.path.join(
-            os.getcwd(), "static", "data", "rain", "png", file_name
-        )
+        file_path = os.path.join(os.getcwd(), "static", "data", "png", file_name)
+
         if not os.path.exists(file_path):
             abort(404)
 
@@ -32,11 +26,8 @@ def get_png(date_str):
 
 
 # NDVI DATA ENDPOINT - Returns image URL and geographic bounds
-# http://localhost:5000/api/img_metadata/2002-01-21
-
-
-@app.route("/api/img_bounds/<date_str>")
-def get_img_bounds(date_str):
+@app.route("/api/ndvi_data/<date_str>")
+def get_ndvi_data(date_str):
     """Return image URL and its geographic bounds."""
     try:
         date_obj = datetime.strptime(date_str, "%Y-%m-%d")
@@ -53,7 +44,7 @@ def get_img_bounds(date_str):
 
         return jsonify(
             {
-                "image_url": f"/api/data/rain/png/{date_str}.png",
+                "image_url": f"/api/ndvi_png/{date_str}",
                 "bounds": {
                     "south": bounds.bottom,
                     "west": bounds.left,
@@ -225,45 +216,35 @@ def classified_rainfall_tif(date_str):
 # Rainfall Metadata  API  endpoint-
 # ============================================================================
 #
-from flask import jsonify, abort
-from datetime import datetime
-import os
-import rasterio
-
-
 @app.route("/api/rainfall_metadata/<date_str>")
 def get_rainfall_metadata(date_str):
-    """Return metadata from original GeoTIFF (no scaling)"""
+    """Just return the metadata for a rainfall file"""
     try:
         date_obj = datetime.strptime(date_str, "%Y-%m-%d")
-        file_name = f"gsod_{date_obj.strftime('%Y%m%d')}.tif"
-        file_path = os.path.join(os.getcwd(), "static", "data", "tif", file_name)
+        file_name = f"gsod_{date_obj.strftime('%Y%m%d')}.png"
+        file_path = os.path.join(
+            os.getcwd(), "static", "data", "rain", "png", file_name
+        )
+        print(f"Looking for rainfall file at: {file_path}")
         if not os.path.exists(file_path):
             abort(404)
 
-        with rasterio.open(file_path) as src:
-            band = src.read(1)
+        img = Image.open(file_path)
+        print(f"Image info: {img.info}")
+        metadata = img.info
 
-            # Mask nodata
-            if src.nodata is not None:
-                band = band[band != src.nodata]
-
-            metadata = {
+        # Return as JSON
+        return jsonify(
+            {
                 "date": date_str,
                 "filename": file_name,
-                "actual_min": float(band.min()),
-                "actual_max": float(band.max()),
-                "units": "mm",
-                "nodata": src.nodata,
-                "dtype": str(band.dtype),
-                "crs": str(src.crs),
-                "transform": src.transform.to_gdal(),
-                "width": src.width,
-                "height": src.height,
-                "bounds": list(src.bounds),
+                "actual_min": float(metadata.get("actual_min", 0)),
+                "actual_max": float(metadata.get("actual_max", 250)),
+                "units": metadata.get("units", "mm"),
+                "original_file": metadata.get("original_file", ""),
+                "crs": metadata.get("crs", ""),
             }
-
-        return jsonify(metadata)
+        )
 
     except Exception as e:
         print(f"Error getting rainfall metadata: {e}")
@@ -378,177 +359,6 @@ def rainfall_cog(date_str):
         abort(404)
 
     return send_file(cog_path, mimetype="image/tiff", as_attachment=False)
-
-
-# ============================================================================
-# Rainfall polygon statistics API endpoint
-# ============================================================================
-# http://localhost:5000/api/rainfall_polygon?date=2002-03-21&adm1_name=Harare
-@app.route("/api/rainfall_polygon")
-def rainfall_polygon():
-    try:
-        date_str = request.args.get("date")
-        adm1_name = request.args.get("adm1_name")
-
-        if not date_str or not adm1_name:
-            abort(400)
-
-        # Build raster path
-        date_obj = datetime.strptime(date_str, "%Y-%m-%d")
-        raster_path = os.path.join(
-            "static", "data", "cog", f"gsod_{date_obj.strftime('%Y%m%d')}_cog.tif"
-        )
-
-        if not os.path.exists(raster_path):
-            abort(404)
-
-        # Load admin boundaries
-        gdf = gpd.read_file("static/data/zim_admin1.geojson")
-
-        # Filter polygon
-        poly = gdf[gdf["ADM1_EN"] == adm1_name]
-
-        if poly.empty:
-            abort(404)
-
-        with rasterio.open(raster_path) as src:
-            # Reproject polygon if needed
-            if poly.crs != src.crs:
-                poly = poly.to_crs(src.crs)
-
-            geom = [poly.geometry.iloc[0]]
-
-            # Mask raster by polygon
-            data, _ = mask(src, geom, crop=True)
-            band = data[0]
-
-            # Remove nodata
-            if src.nodata is not None:
-                band = band[band != src.nodata]
-
-            band = band[~np.isnan(band)]
-
-            if band.size == 0:
-                abort(404)
-
-            stats = {
-                "date": date_str,
-                "adm1_name": adm1_name,
-                "mean_mm": float(band.mean()),
-                "min_mm": float(band.min()),
-                "max_mm": float(band.max()),
-                "std_mm": float(band.std()),
-                "pixel_count": int(band.size),
-            }
-
-        return jsonify(stats)
-
-    except Exception as e:
-        print("Polygon stats error:", e)
-        abort(500)
-
-
-# ============================================================================
-# Rainfall polygon statistics API endpoint start and end date
-# ============================================================================
-# http://localhost:5000/api/rainfall_polygon_range?start_date=2002-03-01&end_date=2002-03-21&adm1_name=Matabeleland North
-from datetime import datetime, timedelta
-
-
-@app.route("/api/rainfall_polygon_range")
-def rainfall_polygon_range():
-    try:
-        start_date = request.args.get("start_date")
-        end_date = request.args.get("end_date")
-        adm1_name = request.args.get("adm1_name")
-
-        if not start_date or not end_date or not adm1_name:
-            abort(400, "start_date, end_date and adm1_name are required")
-
-        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-        end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-
-        if start_dt > end_dt:
-            abort(400, "start_date must be before end_date")
-
-        # Load admin boundaries
-        gdf = gpd.read_file("static/data/zim_admin1.geojson")
-        poly = gdf[gdf["ADM1_EN"] == adm1_name]
-
-        if poly.empty:
-            abort(404, "Admin area not found")
-
-        daily_stats = []
-        all_values = []
-
-        current_dt = start_dt
-        while current_dt <= end_dt:
-            raster_path = os.path.join(
-                "static", "data", "cog", f"gsod_{current_dt.strftime('%Y%m%d')}_cog.tif"
-            )
-
-            if not os.path.exists(raster_path):
-                current_dt += timedelta(days=1)
-                continue
-
-            with rasterio.open(raster_path) as src:
-                if poly.crs != src.crs:
-                    poly_proj = poly.to_crs(src.crs)
-                else:
-                    poly_proj = poly
-
-                geom = [poly_proj.geometry.iloc[0]]
-
-                data, _ = mask(src, geom, crop=True)
-                band = data[0]
-
-                if src.nodata is not None:
-                    band = band[band != src.nodata]
-
-                band = band[~np.isnan(band)]
-
-                if band.size > 0:
-                    daily_stats.append(
-                        {
-                            "date": current_dt.strftime("%Y-%m-%d"),
-                            "mean_mm": float(band.mean()),
-                            "min_mm": float(band.min()),
-                            "max_mm": float(band.max()),
-                            "std_mm": float(band.std()),
-                            "pixel_count": int(band.size),
-                        }
-                    )
-
-                    all_values.append(band)
-
-            current_dt += timedelta(days=1)
-
-        if not all_values:
-            abort(404, "No valid raster data found for date range")
-
-        all_values = np.concatenate(all_values)
-
-        summary_stats = {
-            "mean_mm": float(all_values.mean()),
-            "min_mm": float(all_values.min()),
-            "max_mm": float(all_values.max()),
-            "std_mm": float(all_values.std()),
-            "pixel_count": int(all_values.size),
-        }
-
-        return jsonify(
-            {
-                "adm1_name": adm1_name,
-                "start_date": start_date,
-                "end_date": end_date,
-                "summary": summary_stats,
-                "daily": daily_stats,
-            }
-        )
-
-    except Exception as e:
-        print("Polygon stats error:", e)
-        abort(500)
 
 
 if __name__ == "__main__":
