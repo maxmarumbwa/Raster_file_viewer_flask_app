@@ -551,6 +551,70 @@ def rainfall_polygon_range():
         abort(500)
 
 
+# ======================================================================
+# Simple rainfall total between start and end date
+# ======================================================================
+# /api/rainfall_total?start_date=2001-01-01&end_date=2001-12-31
+
+
+@app.route("/api/rainfall_total")
+def rainfall_total():
+    try:
+        start_date = request.args.get("start_date")
+        end_date = request.args.get("end_date")
+
+        if not start_date or not end_date:
+            abort(400, "start_date and end_date are required")
+
+        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+
+        if start_dt > end_dt:
+            abort(400, "start_date must be before end_date")
+
+        all_values = []
+
+        current = start_dt
+        while current <= end_dt:
+            raster_path = os.path.join(
+                "static", "data", "cog", f"gsod_{current.strftime('%Y%m%d')}_cog.tif"
+            )
+            print(f"Processing raster: {raster_path}")
+            if not os.path.exists(raster_path):
+                current += timedelta(days=1)
+                continue
+
+            with rasterio.open(raster_path) as src:
+                band = src.read(1).astype("float32")
+
+                if src.nodata is not None:
+                    band[band == src.nodata] = np.nan
+
+                band = band[~np.isnan(band)]
+
+                if band.size > 0:
+                    all_values.append(band)
+
+            current += timedelta(days=1)
+
+        if not all_values:
+            abort(404, "No rainfall data found in given period")
+
+        values = np.concatenate(all_values)
+
+        return jsonify(
+            {
+                "start_date": start_date,
+                "end_date": end_date,
+                "mean_rainfall_mm": float(values.sum()),
+            }
+        )
+
+    except Exception as e:
+        print("Rainfall total error:", e)
+        abort(500)
+
+
 if __name__ == "__main__":
     # Run the Flask application in debug mode
     app.run(debug=True, host="0.0.0.0", port=5000)
