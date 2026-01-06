@@ -703,6 +703,9 @@ def rainfall_areal_total_by_province():
 # ========================================================================
 # API get event/ current rainfall data and lta
 # ========================================================================
+# http://localhost:5000/api/event_vs_lta_range?start_date=2002-05-01&end_date=2002-06-01&adm1_name=Matabeleland%20North&
+
+
 @app.route("/api/event_vs_lta_range")
 def event_vs_lta_range():
     from rasterio.mask import mask
@@ -726,50 +729,68 @@ def event_vs_lta_range():
 
     results = []
 
-    current = start_dt
+    # 🔹 START AT FIRST MONTH
+    current = start_dt.replace(day=1)
+
     while current <= end_dt:
 
-        # --- Determine dekad ---
-        if current.day <= 10:
-            dekad = current.strftime("%m") + "01"
-        elif current.day <= 20:
-            dekad = current.strftime("%m") + "11"
+        for day in (1, 11, 21):
+            try:
+                dekad_date = current.replace(day=day)
+            except ValueError:
+                continue
+
+            if not (start_dt <= dekad_date <= end_dt):
+                continue
+
+            mmdd = dekad_date.strftime("%m%d")
+
+            event_raster = (
+                f"static/data/cog/gsod_{dekad_date.strftime('%Y%m%d')}_cog.tif"
+            )
+            lta_raster = f"static/data/derived/lta/gsod_{mmdd}_lta.tif"
+
+            if not os.path.exists(event_raster) or not os.path.exists(lta_raster):
+                continue
+
+            # --- Event rainfall ---
+            with rasterio.open(event_raster) as src:
+                poly_p = poly.to_crs(src.crs)
+                data, _ = mask(src, poly_p.geometry, crop=True)
+                band = data[0]
+                band = band[~np.isnan(band)]
+
+                if band.size == 0:
+                    continue
+
+                event_mean = float(band.mean())
+
+            # --- Baseline (LTA) ---
+            with rasterio.open(lta_raster) as src:
+                poly_p = poly.to_crs(src.crs)
+                data, _ = mask(src, poly_p.geometry, crop=True)
+                band = data[0]
+                band = band[~np.isnan(band)]
+
+                if band.size == 0:
+                    continue
+
+                lta_mean = float(band.mean())
+
+            results.append(
+                {
+                    "date": dekad_date.strftime("%Y-%m-%d"),
+                    "dekad": mmdd,
+                    "event_mm": round(event_mean, 2),
+                    "baseline_mm": round(lta_mean, 2),
+                }
+            )
+
+        # 🔹 MOVE TO NEXT MONTH
+        if current.month == 12:
+            current = current.replace(year=current.year + 1, month=1)
         else:
-            dekad = current.strftime("%m") + "21"
-
-        event_raster = f"static/data/cog/gsod_{current.strftime('%Y%m%d')}_cog.tif"
-        lta_raster = f"static/data/derived/lta/gsod_{dekad}_lta.tif"
-
-        if not os.path.exists(event_raster) or not os.path.exists(lta_raster):
-            current += timedelta(days=10)
-            continue
-
-        # --- Event ---
-        with rasterio.open(event_raster) as src:
-            poly_p = poly.to_crs(src.crs)
-            data, _ = mask(src, poly_p.geometry, crop=True)
-            band = data[0]
-            band = band[~np.isnan(band)]
-            event_mean = float(band.mean())
-
-        # --- Baseline ---
-        with rasterio.open(lta_raster) as src:
-            poly_p = poly.to_crs(src.crs)
-            data, _ = mask(src, poly_p.geometry, crop=True)
-            band = data[0]
-            band = band[~np.isnan(band)]
-            lta_mean = float(band.mean())
-
-        results.append(
-            {
-                "date": current.strftime("%Y-%m-%d"),
-                "dekad": dekad,
-                "event_mm": round(event_mean, 2),
-                "baseline_mm": round(lta_mean, 2),
-            }
-        )
-
-        current += timedelta(days=10)
+            current = current.replace(month=current.month + 1)
 
     return jsonify(
         {

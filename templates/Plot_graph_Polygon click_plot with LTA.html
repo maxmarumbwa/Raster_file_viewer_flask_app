@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Dekadal Rainfall: Event vs Baseline</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: Arial; margin: 30px; }
+        .controls { margin-bottom: 20px; }
+        canvas { max-width: 900px; }
+    </style>
+</head>
+<body>
+
+<h2>Dekadal Rainfall: Event vs Baseline</h2>
+
+<div class="controls">
+    Start: <input type="date" id="start" value="2001-05-01">
+    End: <input type="date" id="end" value="2022-06-31">
+
+    Admin:
+    <select id="adm">
+        <option>Masvingo</option>
+        <option>Matabeleland North</option>
+    </select>
+
+    <button onclick="loadData()">Plot</button>
+</div>
+
+<canvas id="chart"></canvas>
+
+<script>
+let chart;
+
+function loadData() {
+    const s = start.value;
+    const e = end.value;
+    const adm = document.getElementById("adm").value;
+
+    fetch(`/api/event_vs_lta_range?start_date=${s}&end_date=${e}&adm1_name=${adm}`)
+        .then(r => r.json())
+        .then(d => plot(d.data));
+}
+
+function plot(data) {
+    const labels = data.map(d => d.date);
+    const eventVals = data.map(d => d.event_mm);
+    const baseVals = data.map(d => d.baseline_mm);
+
+    if (chart) chart.destroy();
+
+    chart = new Chart(document.getElementById("chart"), {
+        type: "line",
+        data: {
+            labels,
+            datasets: [
+                {
+                    label: "Event Rainfall (mm)",
+                    data: eventVals,
+                    borderWidth: 2,
+                    tension: 0.3
+                },
+                {
+                    label: "Baseline (LTA mm)",
+                    data: baseVals,
+                    borderDash: [5,5],
+                    borderWidth: 2,
+                    tension: 0.3
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    title: { display: true, text: "Rainfall (mm)" }
+                }
+            }
+        }
+    });
+}
+</script>
+
+</body>
+</html>
