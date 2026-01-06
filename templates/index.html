@@ -125,7 +125,7 @@
     function initChart() {
         const ctx = document.getElementById('rainChart').getContext('2d');
         chart = new Chart(ctx, {
-            type: 'line',
+            type: 'bar',
             data: { labels: [], datasets: [] },
             options: {
                 responsive: true,

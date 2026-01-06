@@ -547,6 +547,112 @@ def rainfall_polygon_range():
         abort(500)
 
 
+# ============================================================================
+# Rainfall polygon LONG-TERM AVERAGE (LTA) endpoint with caching
+# ============================================================================
+# /api/rainfall_polygon_lta?adm1_name=Matabeleland North&start_year=2001&end_year=2005
+
+from datetime import datetime, timedelta
+from flask import request, jsonify, abort
+import os
+import numpy as np
+import geopandas as gpd
+import rasterio
+from rasterio.mask import mask
+
+# Simple in-memory cache
+LTA_CACHE = {}
+
+
+@app.route("/api/rainfall_polygon_lta")
+def rainfall_polygon_lta():
+    try:
+        adm1_name = request.args.get("adm1_name")
+        start_year = int(request.args.get("start_year", 2001))
+        end_year = int(request.args.get("end_year", 2005))
+
+        if not adm1_name:
+            abort(400, "adm1_name is required")
+
+        cache_key = f"{adm1_name}_{start_year}_{end_year}"
+
+        # -------------------------------
+        # 1. Return cached result
+        # -------------------------------
+        if cache_key in LTA_CACHE:
+            return jsonify({"source": "cache", **LTA_CACHE[cache_key]})
+
+        # -------------------------------
+        # 2. Load admin boundary
+        # -------------------------------
+        gdf = gpd.read_file("static/data/zim_admin1.geojson")
+        poly = gdf[gdf["ADM1_EN"] == adm1_name]
+
+        if poly.empty:
+            abort(404, "Admin area not found")
+
+        # -------------------------------
+        # 3. Loop over baseline period
+        # -------------------------------
+        daily_means = []
+
+        start_dt = datetime(start_year, 1, 1)
+        end_dt = datetime(end_year, 12, 31)
+
+        current_dt = start_dt
+        while current_dt <= end_dt:
+            raster_path = os.path.join(
+                "static", "data", "cog", f"gsod_{current_dt.strftime('%Y%m%d')}_cog.tif"
+            )
+
+            if not os.path.exists(raster_path):
+                current_dt += timedelta(days=1)
+                continue
+
+            with rasterio.open(raster_path) as src:
+                poly_proj = poly.to_crs(src.crs) if poly.crs != src.crs else poly
+                geom = [poly_proj.geometry.iloc[0]]
+
+                data, _ = mask(src, geom, crop=True)
+                band = data[0]
+
+                if src.nodata is not None:
+                    band = band[band != src.nodata]
+
+                band = band[~np.isnan(band)]
+
+                if band.size > 0:
+                    daily_means.append(band.mean())
+
+            current_dt += timedelta(days=1)
+
+        if not daily_means:
+            abort(404, "No raster data found for baseline period")
+
+        # -------------------------------
+        # 4. Compute LTA
+        # -------------------------------
+        lta_value = float(np.mean(daily_means))
+
+        response = {
+            "adm1_name": adm1_name,
+            "baseline": f"{start_year}-{end_year}",
+            "mean_mmavg": lta_value,
+            "days_used": len(daily_means),
+        }
+
+        # -------------------------------
+        # 5. Cache result
+        # -------------------------------
+        LTA_CACHE[cache_key] = response
+
+        return jsonify({"source": "computed", **response})
+
+    except Exception as e:
+        print("LTA error:", e)
+        abort(500)
+
+
 # ======================================================================
 # Simple rainfall total between start and end date
 # ======================================================================
