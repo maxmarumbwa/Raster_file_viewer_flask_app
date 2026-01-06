@@ -27,12 +27,13 @@
 
         /* Scrollable table */
         .table-wrapper {
-            max-height: 300px; 
+            max-height: 300px; /* Adjust height to fit your page */
             overflow-y: auto;
             background: white;
             border-radius: 8px;
             box-shadow: 0 3px 6px rgba(0,0,0,0.1);
         }
+
         table {
             width: 100%;
             border-collapse: collapse;
@@ -52,7 +53,7 @@
     <h1>Rainfall Dashboard</h1>
 
     <div class="form-container">
-        <label for="date">Rainfall Date:</label>
+        <label for="date">Rainfall Base Date:</label>
         <input type="date" id="date" value="2005-03-21">
         <button onclick="loadRainfallLayer()">Load Rainfall Base</button>
         <br><br>
@@ -60,7 +61,6 @@
         <input type="date" id="start" value="2001-05-01">
         <label for="end">End Date:</label>
         <input type="date" id="end" value="2002-06-21">
-        <button onclick="fetchAllPoints()">Plot All Points</button>
     </div>
 
     <div class="dashboard">
@@ -71,15 +71,20 @@
     </div>
 
     <div>
-        <h3>Pixel Rainfall Data</h3>
+        <h3>Admin Rainfall Data</h3>
         <div class="table-wrapper">
             <table id="data-table">
                 <thead>
-                    <tr id="table-header">
+                    <tr>
                         <th>Date</th>
+                        <th>Mean (mm)</th>
+                        <th>Min (mm)</th>
+                        <th>Max (mm)</th>
+                        <th>Std (mm)</th>
+                        <th>Pixel Count</th>
                     </tr>
                 </thead>
-                <tbody id="table-body"></tbody>
+                <tbody></tbody>
             </table>
         </div>
     </div>
@@ -96,8 +101,7 @@
         ];
 
         let rainfallLayer = null;
-        const points = []; // stores {lat, lon, label, data}
-        const markers = [];
+        let adminLayer = null;
         let chart = null;
 
         function loadRainfallLayer() {
@@ -108,55 +112,53 @@
             map.fitBounds(bounds);
         }
 
-        // Add marker on click and fetch data
-        map.on('click', async function(e) {
-            const lat = e.latlng.lat.toFixed(4);
-            const lon = e.latlng.lng.toFixed(4);
-            const label = `(${lat}, ${lon})`;
+        // Load admin boundaries
+        fetch("/static/data/zim_admin1.geojson")
+        .then(resp => resp.json())
+        .then(data => {
+            adminLayer = L.geoJSON(data, {
+                style: { color: "#FF5733", weight: 2, fillOpacity: 0.1 },
+                onEachFeature: function(feature, layer) {
+                    layer.on('click', function() {
+                        const admName = feature.properties.ADM1_EN;
+                        const start = document.getElementById('start').value;
+                        const end = document.getElementById('end').value;
 
-            // Add marker
-            const marker = L.marker([lat, lon]).addTo(map);
-            markers.push(marker);
-
-            // Fetch rainfall data
-            const start = document.getElementById('start').value;
-            const end = document.getElementById('end').value;
-            const url = `/api/rainfall_value_multiple?lat=${lat}&lon=${lon}&start_date=${start}&end_date=${end}`;
-
-            try {
-                const response = await fetch(url);
-                if (!response.ok) throw new Error('No data');
-
-                const data = await response.json();
-                points.push({lat, lon, label, data});
-
-                updateChart();
-                updateTable();
-
-            } catch (err) {
-                alert('Error fetching rainfall: ' + err.message);
-                console.error(err);
-            }
+                        fetch(`/api/rainfall_polygon_range?start_date=${start}&end_date=${end}&adm1_name=${admName}`)
+                        .then(resp => resp.json())
+                        .then(json => {
+                            plotChart(json.daily, admName);
+                            plotTable(json.daily);
+                        })
+                        .catch(err => {
+                            alert("Error fetching polygon rainfall: " + err.message);
+                            console.error(err);
+                        });
+                    });
+                }
+            }).addTo(map);
+            map.fitBounds(adminLayer.getBounds());
         });
 
-        function updateChart() {
+        function plotChart(data, label) {
+            const labels = data.map(d => d.date);
+            const rainfall = data.map(d => d.mean_mm);
+
             if (chart) chart.destroy();
             const ctx = document.getElementById('rainChart').getContext('2d');
-
-            // Use dates from first point for X-axis
-            const labels = points[0] ? points[0].data.map(d => d.date) : [];
-
-            const datasets = points.map(p => ({
-                label: p.label,
-                data: p.data.map(d => d.rainfall_mm),
-                borderColor: getRandomColor(),
-                backgroundColor: 'rgba(0,0,0,0)',
-                tension: 0.3
-            }));
-
             chart = new Chart(ctx, {
                 type: 'line',
-                data: { labels, datasets },
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: `${label} Mean Rainfall (mm)`,
+                        data: rainfall,
+                        borderColor: '#1f77b4',
+                        backgroundColor: 'rgba(31, 119, 180, 0.2)',
+                        fill: true,
+                        tension: 0.3
+                    }]
+                },
                 options: {
                     responsive: true,
                     plugins: {
@@ -171,53 +173,17 @@
             });
         }
 
-        function updateTable() {
-            const tableHeader = document.getElementById('table-header');
-            const tableBody = document.getElementById('table-body');
-
-            // Clear header and body
-            tableHeader.innerHTML = '<th>Date</th>';
-            tableBody.innerHTML = '';
-
-            // Add point columns
-            points.forEach(p => {
-                const th = document.createElement('th');
-                th.innerText = p.label;
-                tableHeader.appendChild(th);
+        function plotTable(data) {
+            const tbody = document.querySelector('#data-table tbody');
+            tbody.innerHTML = '';
+            data.forEach(d => {
+                const row = document.createElement('tr');
+                row.innerHTML = `<td>${d.date}</td><td>${d.mean_mm.toFixed(2)}</td><td>${d.min_mm.toFixed(2)}</td><td>${d.max_mm.toFixed(2)}</td><td>${d.std_mm.toFixed(2)}</td><td>${d.pixel_count}</td>`;
+                tbody.appendChild(row);
             });
-
-            // Use first point for dates
-            const n = points[0] ? points[0].data.length : 0;
-            for (let i = 0; i < n; i++) {
-                const tr = document.createElement('tr');
-                const tdDate = document.createElement('td');
-                tdDate.innerText = points[0].data[i].date;
-                tr.appendChild(tdDate);
-
-                points.forEach(p => {
-                    const td = document.createElement('td');
-                    td.innerText = p.data[i] ? p.data[i].rainfall_mm.toFixed(2) : '-';
-                    tr.appendChild(td);
-                });
-
-                tableBody.appendChild(tr);
-            }
         }
 
-        function getRandomColor() {
-            const r = Math.floor(Math.random()*200);
-            const g = Math.floor(Math.random()*200);
-            const b = Math.floor(Math.random()*200);
-            return `rgb(${r},${g},${b})`;
-        }
-
-        // Optional: reload chart for all points on button click
-        function fetchAllPoints() {
-            updateChart();
-            updateTable();
-        }
-
-        // Load default rainfall layer
+        // Load default rainfall base
         loadRainfallLayer();
     </script>
 </body>
