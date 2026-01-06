@@ -700,6 +700,87 @@ def rainfall_areal_total_by_province():
         abort(500)
 
 
+# ========================================================================
+# API get event/ current rainfall data and lta
+# ========================================================================
+@app.route("/api/event_vs_lta_range")
+def event_vs_lta_range():
+    from rasterio.mask import mask
+    import numpy as np
+
+    start_date = request.args.get("start_date")
+    end_date = request.args.get("end_date")
+    adm1_name = request.args.get("adm1_name")
+
+    if not start_date or not end_date or not adm1_name:
+        abort(400)
+
+    start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+    end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+
+    gdf = gpd.read_file("static/data/zim_admin1.geojson")
+    poly = gdf[gdf["ADM1_EN"] == adm1_name]
+
+    if poly.empty:
+        abort(404)
+
+    results = []
+
+    current = start_dt
+    while current <= end_dt:
+
+        # --- Determine dekad ---
+        if current.day <= 10:
+            dekad = current.strftime("%m") + "01"
+        elif current.day <= 20:
+            dekad = current.strftime("%m") + "11"
+        else:
+            dekad = current.strftime("%m") + "21"
+
+        event_raster = f"static/data/cog/gsod_{current.strftime('%Y%m%d')}_cog.tif"
+        lta_raster = f"static/data/derived/lta/gsod_{dekad}_lta.tif"
+
+        if not os.path.exists(event_raster) or not os.path.exists(lta_raster):
+            current += timedelta(days=10)
+            continue
+
+        # --- Event ---
+        with rasterio.open(event_raster) as src:
+            poly_p = poly.to_crs(src.crs)
+            data, _ = mask(src, poly_p.geometry, crop=True)
+            band = data[0]
+            band = band[~np.isnan(band)]
+            event_mean = float(band.mean())
+
+        # --- Baseline ---
+        with rasterio.open(lta_raster) as src:
+            poly_p = poly.to_crs(src.crs)
+            data, _ = mask(src, poly_p.geometry, crop=True)
+            band = data[0]
+            band = band[~np.isnan(band)]
+            lta_mean = float(band.mean())
+
+        results.append(
+            {
+                "date": current.strftime("%Y-%m-%d"),
+                "dekad": dekad,
+                "event_mm": round(event_mean, 2),
+                "baseline_mm": round(lta_mean, 2),
+            }
+        )
+
+        current += timedelta(days=10)
+
+    return jsonify(
+        {
+            "adm1_name": adm1_name,
+            "start_date": start_date,
+            "end_date": end_date,
+            "data": results,
+        }
+    )
+
+
 if __name__ == "__main__":
     # Run the Flask application in debug mode
     app.run(debug=True, host="0.0.0.0", port=5000)
