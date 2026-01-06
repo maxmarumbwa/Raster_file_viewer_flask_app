@@ -31,10 +31,6 @@ def get_png(date_str):
         abort(500)
 
 
-# NDVI DATA ENDPOINT - Returns image URL and geographic bounds
-# http://localhost:5000/api/img_metadata/2002-01-21
-
-
 @app.route("/api/img_bounds/<date_str>")
 def get_img_bounds(date_str):
     """Return image URL and its geographic bounds."""
@@ -555,8 +551,6 @@ def rainfall_polygon_range():
 # Simple rainfall total between start and end date
 # ======================================================================
 # /api/rainfall_total?start_date=2001-01-01&end_date=2001-12-31
-
-
 @app.route("/api/rainfall_total")
 def rainfall_total():
     try:
@@ -579,7 +573,7 @@ def rainfall_total():
             raster_path = os.path.join(
                 "static", "data", "cog", f"gsod_{current.strftime('%Y%m%d')}_cog.tif"
             )
-            print(f"Processing raster: {raster_path}")
+
             if not os.path.exists(raster_path):
                 current += timedelta(days=1)
                 continue
@@ -612,6 +606,97 @@ def rainfall_total():
 
     except Exception as e:
         print("Rainfall total error:", e)
+        abort(500)
+
+
+# ======================================================================
+# Areal rainfall total per province (mean → sum)
+# ======================================================================
+# /api/rainfall_areal_total_by_province?start_date=2001-01-01&end_date=2001-12-31
+
+
+@app.route("/api/rainfall_areal_total_by_province")
+def rainfall_areal_total_by_province():
+    try:
+        start_date = request.args.get("start_date")
+        end_date = request.args.get("end_date")
+
+        if not start_date or not end_date:
+            abort(400, "start_date and end_date are required")
+
+        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+
+        if start_dt > end_dt:
+            abort(400, "start_date must be before end_date")
+
+        # Load provinces
+        gdf = gpd.read_file("static/data/zim_admin1.geojson")
+
+        results = []
+
+        for _, row in gdf.iterrows():
+            province = row["ADM1_EN"]
+            geom = [row.geometry]
+
+            daily_means = []
+
+            current = start_dt
+            while current <= end_dt:
+                raster_path = os.path.join(
+                    "static",
+                    "data",
+                    "cog",
+                    f"gsod_{current.strftime('%Y%m%d')}_cog.tif",
+                )
+
+                if not os.path.exists(raster_path):
+                    current += timedelta(days=1)
+                    continue
+
+                with rasterio.open(raster_path) as src:
+                    # Reproject geometry if needed
+                    geom_proj = geom
+                    if gdf.crs != src.crs:
+                        geom_proj = [
+                            gpd.GeoSeries(geom, crs=gdf.crs).to_crs(src.crs).iloc[0]
+                        ]
+
+                    data, _ = mask(src, geom_proj, crop=True)
+                    band = data[0].astype("float32")
+
+                    if src.nodata is not None:
+                        band[band == src.nodata] = np.nan
+
+                    band = band[~np.isnan(band)]
+
+                    if band.size > 0:
+                        daily_means.append(float(band.mean()))
+
+                current += timedelta(days=1)
+
+            if daily_means:
+                results.append(
+                    {
+                        "province": province,
+                        "areal_rainfall_mm": float(np.sum(daily_means)),
+                        "days_used": len(daily_means),
+                        "mean_daily_mm": float(np.mean(daily_means)),
+                    }
+                )
+
+        return jsonify(
+            {
+                "start_date": start_date,
+                "end_date": end_date,
+                "method": "sum of daily polygon means",
+                "unit": "mm",
+                "results": results,
+            }
+        )
+
+    except Exception as e:
+        print("Areal rainfall error:", e)
         abort(500)
 
 

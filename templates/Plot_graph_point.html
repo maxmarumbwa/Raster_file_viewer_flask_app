@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Rainfall Time Series</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f4f6f8;
+        }
+        h1 {
+            color: #1f77b4;
+        }
+        .form-container {
+            margin-bottom: 20px;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 3px 6px rgba(0,0,0,0.1);
+        }
+        label {
+            margin-right: 10px;
+        }
+        input {
+            margin-right: 20px;
+            padding: 5px;
+        }
+        button {
+            padding: 5px 15px;
+            background-color: #1f77b4;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #155d8b;
+        }
+        canvas {
+            background: white;
+            border-radius: 8px;
+            padding: 10px;
+            box-shadow: 0 3px 6px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+    <h1>Rainfall Time Series Chart</h1>
+
+    <div class="form-container">
+        <label for="lat">Latitude:</label>
+        <input type="number" id="lat" value="-18.5" step="0.01">
+        
+        <label for="lon">Longitude:</label>
+        <input type="number" id="lon" value="29.5" step="0.01">
+        
+        <label for="start">Start Date:</label>
+        <input type="date" id="start" value="2005-03-01">
+        
+        <label for="end">End Date:</label>
+        <input type="date" id="end" value="2005-03-21">
+        
+        <button onclick="fetchRainfallData()">Plot Chart</button>
+    </div>
+
+    <canvas id="rainChart" width="800" height="400"></canvas>
+
+    <script>
+        let chart = null;
+
+        async function fetchRainfallData() {
+            const lat = document.getElementById('lat').value;
+            const lon = document.getElementById('lon').value;
+            const start = document.getElementById('start').value;
+            const end = document.getElementById('end').value;
+
+            const url = `/api/rainfall_value_multiple?lat=${lat}&lon=${lon}&start_date=${start}&end_date=${end}`;
+
+            try {
+                const response = await fetch(url);
+                if (!response.ok) throw new Error('No data found or API error');
+
+                const data = await response.json();
+
+                // Extract arrays for Chart.js
+                const labels = data.map(d => d.date);
+                const rainfall = data.map(d => d.rainfall_mm);
+
+                // If chart exists, destroy it before creating a new one
+                if (chart) chart.destroy();
+
+                const ctx = document.getElementById('rainChart').getContext('2d');
+                chart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: `Rainfall at (${lat}, ${lon}) [mm]`,
+                            data: rainfall,
+                            borderColor: '#1f77b4',
+                            backgroundColor: 'rgba(31, 119, 180, 0.2)',
+                            fill: true,
+                            tension: 0.3
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: { position: 'top' },
+                            title: { display: true, text: 'Rainfall Time Series' }
+                        },
+                        scales: {
+                            x: { title: { display: true, text: 'Date' } },
+                            y: { title: { display: true, text: 'Rainfall (mm)' } }
+                        }
+                    }
+                });
+
+            } catch (err) {
+                alert("Error fetching rainfall data: " + err.message);
+                console.error(err);
+            }
+        }
+    </script>
+</body>
+</html>
