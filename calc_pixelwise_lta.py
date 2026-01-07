@@ -11,62 +11,60 @@ OUT_DIR = "static/data/derived/anom"
 os.makedirs(OUT_DIR, exist_ok=True)
 
 # ---------------------------------------
-# INPUTS (dekad is EXPLICIT)
+# LOOP THROUGH ALL EVENT RASTERS
 # ---------------------------------------
-year = "2001"
-month = "01"  # 01–12
-dekad = "01"  # 01, 11, or 21
+for fname in sorted(os.listdir(EVENT_DIR)):
 
-# ---------------------------------------
-# FILE PATHS (MATCH YOUR NAMING)
-# ---------------------------------------
-event_path = os.path.join(EVENT_DIR, f"gsod_{year}{month}{dekad}_cog.tif")
+    # Expecting: gsod_YYYYMMDD_cog.tif
+    if not fname.startswith("gsod_") or not fname.endswith("_cog.tif"):
+        continue
 
-lta_path = os.path.join(LTA_DIR, f"gsod_{month}{dekad}_lta.tif")
+    date_str = fname.replace("gsod_", "").replace("_cog.tif", "")
+    year = date_str[:4]
+    month = date_str[4:6]
+    dekad = date_str[6:8]  # 01, 11, or 21
 
-out_path = os.path.join(OUT_DIR, f"gsod_{year}{month}{dekad}_anom.tif")
+    event_path = os.path.join(EVENT_DIR, fname)
+    lta_path = os.path.join(LTA_DIR, f"gsod_{month}{dekad}_lta.tif")
+    out_path = os.path.join(OUT_DIR, f"gsod_{date_str}_anom.tif")
 
-print("Event:", event_path)
-print("LTA:", lta_path)
-print("Output:", out_path)
+    if not os.path.exists(lta_path):
+        print(f"⚠ Missing LTA for {month}{dekad}, skipping")
+        continue
 
-# ---------------------------------------
-# CHECK FILES
-# ---------------------------------------
-if not os.path.exists(event_path):
-    raise FileNotFoundError(f"Missing event raster: {event_path}")
+    print(f"Processing {date_str}")
 
-if not os.path.exists(lta_path):
-    raise FileNotFoundError(f"Missing LTA raster: {lta_path}")
+    # -----------------------------------
+    # READ RASTERS
+    # -----------------------------------
+    with rasterio.open(event_path) as ev_src, rasterio.open(lta_path) as lta_src:
 
-# ---------------------------------------
-# READ + COMPUTE ANOMALY
-# ---------------------------------------
-with rasterio.open(event_path) as ev_src, rasterio.open(lta_path) as lta_src:
+        event = ev_src.read(1).astype("float32")
 
-    event = ev_src.read(1).astype("float32")
-    lta = lta_src.read(1, out_shape=event.shape, resampling=Resampling.nearest).astype(
-        "float32"
-    )
+        lta = lta_src.read(
+            1, out_shape=event.shape, resampling=Resampling.nearest
+        ).astype("float32")
 
-    nodata = ev_src.nodata
+        nodata = ev_src.nodata
+        if nodata is None:
+            nodata = -9999
 
-    # Mask nodata
-    mask = np.ones(event.shape, dtype=bool)
-    if nodata is not None:
-        mask &= event != nodata
-        mask &= lta != nodata
+        # -----------------------------------
+        # MASKING
+        # -----------------------------------
+        mask = (~np.isnan(event)) & (~np.isnan(lta)) & (lta > 0)
 
-    anomaly = np.full(event.shape, nodata, dtype="float32")
-    anomaly[mask] = event[mask] - lta[mask]  # ✅ ABSOLUTE ANOMALY
+        anomaly_pct = np.full(event.shape, nodata, dtype="float32")
 
-    profile = ev_src.profile
-    profile.update(dtype="float32", nodata=nodata, compress="deflate")
+        anomaly_pct[mask] = ((event[mask] - lta[mask]) / lta[mask]) * 100
 
-# ---------------------------------------
-# WRITE OUTPUT
-# ---------------------------------------
-with rasterio.open(out_path, "w", **profile) as dst:
-    dst.write(anomaly, 1)
+        # -----------------------------------
+        # WRITE OUTPUT
+        # -----------------------------------
+        profile = ev_src.profile
+        profile.update(dtype="float32", nodata=nodata, compress="deflate")
 
-print("✅ Dekadal anomaly written:", out_path)
+        with rasterio.open(out_path, "w", **profile) as dst:
+            dst.write(anomaly_pct, 1)
+
+print("✅ All dekadal percentage anomalies computed")
