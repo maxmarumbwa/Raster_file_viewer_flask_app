@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Rainfall Dashboard</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f4f6f8; }
+        h1 { color: #1f77b4; }
+        .form-container { background: white; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+        button { padding: 6px 15px; background: #1f77b4; color: white; border: none; border-radius: 4px; cursor: pointer; }
+
+        .dashboard { display: flex; gap: 20px; }
+        #map { flex: 1; height: 400px; }
+        #chart-container { flex: 1; }
+
+        .table-wrapper {
+            max-height: 300px;
+            overflow-y: auto;
+            background: white;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 8px; border: 1px solid #ddd; text-align: center; }
+        th { background: #1f77b4; color: white; position: sticky; top: 0; }
+
+        .chart-wrapper {
+    border: 2px solid #1f77b4; /* Blue border */
+    border-radius: 8px;         /* Rounded corners */
+    padding: 0px;              /* Space between border and chart */
+    background: white;           /* Optional: white background */
+}
+    </style>
+</head>
+
+<body>
+<h1>Rainfall Dashboard – Event vs Baseline (Dekadal)</h1>
+
+<div class="form-container">
+    <label>Rainfall Base Date:</label>
+    <input type="date" id="date" value="2005-03-21">
+    <button onclick="loadRainfallLayer()">Load Rainfall Base</button>
+    <br><br>
+
+    <label>Start:</label>
+    <input type="date" id="start" value="2001-05-01">
+    <label>End:</label>
+    <input type="date" id="end" value="2002-06-21">
+</div>
+
+<div class="dashboard">
+    <div id="map"></div>
+<div id="chart-container">
+    <h3>Click on map to generate rainfall chart</h3>
+    <div class="chart-wrapper">
+        <canvas id="rainChart"></canvas>
+    </div>
+</div>
+</div>
+
+<h3>Admin Rainfall (Event vs LTA)</h3>
+<div class="table-wrapper">
+<table id="data-table">
+    <thead>
+        <tr>
+            <th>Date</th>
+            <th>Dekad</th>
+            <th>Event (mm)</th>
+            <th>LTA (mm)</th>
+            <th>Anomaly</th>
+            <th>% Normal</th>
+        </tr>
+    </thead>
+    <tbody></tbody>
+</table>
+</div>
+
+<script>
+/* ================= MAP ================= */
+const map = L.map('map').setView([-18.7, 29.5], 7);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+const bounds = [
+    [-35.0044, 10.9955],
+    [-7.9955, 41.0044]
+];
+
+let rainfallLayer, chart;
+
+/* ================= RAINFALL BASE ================= */
+function loadRainfallLayer() {
+    const date = document.getElementById('date').value;
+    if (rainfallLayer) map.removeLayer(rainfallLayer);
+    rainfallLayer = L.imageOverlay(`http://localhost:5000/api/classified_rainfall_tif/${date}`, bounds, {opacity: 0.6}).addTo(map);
+}
+
+/* ================= ADMIN CLICK ================= */
+fetch("/static/data/zim_admin1.geojson")
+.then(r => r.json())
+.then(gjson => {
+    L.geoJSON(gjson, {
+        style: { color: "#FF5733", weight: 2, fillOpacity: 0.1 },
+        onEachFeature: (f, l) => {
+            l.on("click", () => loadAdminData(f.properties.ADM1_EN));
+        }
+    }).addTo(map);
+});
+
+/* ================= API CALL ================= */
+function loadAdminData(adm) {
+    const s = start.value;
+    const e = end.value;
+
+    fetch(`/api/event_vs_lta_range?start_date=${s}&end_date=${e}&adm1_name=${adm}`)
+    .then(r => r.json())
+    .then(json => {
+        drawChart(json.data, adm);
+        drawTable(json.data);
+    });
+}
+
+/* ================= CHART ================= */
+function drawChart(data, adm) {
+    const labels = data.map(d => d.date);
+    const eventVals = data.map(d => d.event_mm);
+    const ltaVals = data.map(d => d.baseline_mm);
+
+    if (chart) chart.destroy();
+
+    chart = new Chart(rainChart, {
+        type: "line",
+        data: {
+            labels,
+            datasets: [
+                {
+                    label: `${adm} Event`,
+                    data: eventVals,
+                    borderWidth: 2,
+                    tension: 0.3
+                },
+                {
+                    label: "Baseline (LTA)",
+                    data: ltaVals,
+                    borderDash: [6,4],
+                    borderWidth: 2,
+                    tension: 0.3
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: { title: { display: true, text: "Rainfall (mm)" } }
+            }
+        }
+    });
+}
+
+/* ================= TABLE ================= */
+function drawTable(data) {
+    const tbody = document.querySelector("#data-table tbody");
+    tbody.innerHTML = "";
+
+    data.forEach(d => {
+        const anomaly = (d.event_mm - d.baseline_mm).toFixed(1);
+        const pct = d.baseline_mm > 0 ? ((d.event_mm / d.baseline_mm) * 100).toFixed(0) : "-";
+
+        tbody.innerHTML += `
+            <tr>
+                <td>${d.date}</td>
+                <td>${d.dekad}</td>
+                <td>${d.event_mm}</td>
+                <td>${d.baseline_mm}</td>
+                <td>${anomaly}</td>
+                <td>${pct}%</td>
+            </tr>`;
+    });
+}
+
+/* ================= INIT ================= */
+loadRainfallLayer();
+</script>
+
+</body>
+</html>
+
+		 

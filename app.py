@@ -863,6 +863,83 @@ def classified_dekadal_anomaly(date_str):
         abort(500)
 
 
+# =======================================================================
+# API calculate anomaly on the flier
+# =======================================================================
+from flask import Flask, request, jsonify, send_file
+import os
+import rasterio
+import numpy as np
+from rasterio.enums import Resampling
+
+# ---------------- CONFIG ----------------
+EVENT_DIR = "static/data/cog"
+LTA_DIR = "static/data/derived/lta"
+OUT_DIR = "static/data/derived/anom"
+os.makedirs(OUT_DIR, exist_ok=True)
+
+
+# ---------------- HELPERS ----------------
+def compute_anomaly(event_file, lta_file, out_file):
+    with rasterio.open(event_file) as ev_src, rasterio.open(lta_file) as lta_src:
+        event = ev_src.read(1).astype("float32")
+        lta = lta_src.read(
+            1, out_shape=event.shape, resampling=Resampling.nearest
+        ).astype("float32")
+
+        nodata = ev_src.nodata if ev_src.nodata is not None else -9999
+        mask = (~np.isnan(event)) & (~np.isnan(lta)) & (lta > 0)
+
+        anomaly_pct = np.full(event.shape, nodata, dtype="float32")
+        anomaly_pct[mask] = ((event[mask] - lta[mask]) / lta[mask]) * 100
+
+        profile = ev_src.profile
+        profile.update(dtype="float32", nodata=nodata, compress="deflate")
+
+        with rasterio.open(out_file, "w", **profile) as dst:
+            dst.write(anomaly_pct, 1)
+    return out_file
+
+
+# ---------------- ROUTE ----------------
+@app.route("/api/anomaly", methods=["GET"])
+def anomaly():
+    """
+    Calculate dekadal rainfall anomaly.
+    Parameters:
+        dekad: YYYYMMDD (exact dekad string matching your raster filenames)
+    Example:
+        /api/anomaly?dekad=20050111
+    """
+    dekad_str = request.args.get("dekad")
+    if not dekad_str:
+        return jsonify({"error": "Missing 'dekad' parameter"}), 400
+
+    if len(dekad_str) != 8 or not dekad_str.isdigit():
+        return jsonify({"error": "Invalid dekad format. Use YYYYMMDD"}), 400
+
+    # Construct file paths
+    event_file = os.path.join(EVENT_DIR, f"gsod_{dekad_str}_cog.tif")
+    month_dekad = dekad_str[4:6] + dekad_str[6:8]  # MMDD for LTA file
+    lta_file = os.path.join(LTA_DIR, f"gsod_{month_dekad}_lta.tif")
+    out_file = os.path.join(OUT_DIR, f"gsod_{dekad_str}_anom.tif")
+
+    if not os.path.exists(event_file):
+        return jsonify({"error": f"Event raster not found for {dekad_str}"}), 404
+    if not os.path.exists(lta_file):
+        return jsonify({"error": f"LTA raster not found for {month_dekad}"}), 404
+
+    compute_anomaly(event_file, lta_file, out_file)
+
+    # Return the generated anomaly file
+    return send_file(
+        out_file,
+        mimetype="image/tiff",
+        as_attachment=True,
+        download_name=f"anom_{dekad_str}.tif",
+    )
+
+
 if __name__ == "__main__":
     # Run the Flask application in debug mode
     app.run(debug=True, host="0.0.0.0", port=5000)
