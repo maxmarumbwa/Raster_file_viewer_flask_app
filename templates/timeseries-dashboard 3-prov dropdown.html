@@ -169,13 +169,7 @@
             <canvas id="rainChart"></canvas>
         </div>
     </div>
-    <!-- Animation control -->
-    <div class="animation-controls">
-        <button id="play-btn">▶ Play Animation</button>
-        <button id="stop-btn">⏹ Stop</button>
-        <input type="range" id="speed-slider" min="100" max="2000" value="500">
-        <span id="current-date"></span>
-    </div>
+
     <h3>Admin Rainfall (Event vs LTA)</h3>
     <div class="table-wrapper">
         <table id="data-table">
@@ -290,18 +284,6 @@
                 });
         }
 
-        /* ================= CHART ================= */
-        let animationInterval;
-        const dates = []; // Load from API
-
-        function animateRainfall() {
-            let index = 0;
-            animationInterval = setInterval(() => {
-                if (index >= dates.length) index = 0;
-                loadRainfallLayer(dates[index]);
-                index++;
-            }, document.getElementById('speed-slider').value);
-        }
         /* ================= CHART ================= */
         function drawChart(data, adm) {
             const labels = data.map(d => d.date);
