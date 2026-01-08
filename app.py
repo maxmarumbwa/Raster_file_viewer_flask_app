@@ -940,6 +940,87 @@ def anomaly():
     )
 
 
+# ======================================================================
+# Seasonal summary endpoint
+# ======================================================================
+from flask import Flask, request, jsonify
+from datetime import datetime
+import pandas as pd
+import json
+import geopandas as gpd
+import rasterio
+from rasterio.mask import mask
+
+app = Flask(__name__)
+
+# Example: Load admin polygons (GeoJSON)
+admin_gdf = gpd.read_file("static/data/zim_admin1.geojson")
+
+
+# Utility: assign season based on month
+def get_season(month):
+    if month in [12, 1, 2]:
+        return "DJF"  # Summer
+    elif month in [3, 4, 5]:
+        return "MAM"  # Autumn
+    elif month in [6, 7, 8]:
+        return "JJA"  # Winter
+    else:
+        return "SON"  # Spring
+
+
+# Seasonal summary endpoint
+@app.route("/api/seasonal_summary")
+# GET /api/seasonal_summary?start_date=2001-01-01&end_date=2002-12-31&adm1_name=Harare&metric=sum
+
+
+def seasonal_summary():
+    """
+    Query params:
+    - start_date: YYYY-MM-DD
+    - end_date: YYYY-MM-DD
+    - adm1_name: optional, admin region name
+    - metric: optional, "sum" (default) or "mean"
+    """
+    start_str = request.args.get("start_date")
+    end_str = request.args.get("end_date")
+    adm_name = request.args.get("adm1_name")
+    metric = request.args.get("metric", "sum").lower()
+
+    if not start_str or not end_str:
+        return jsonify({"error": "start_date and end_date are required"}), 400
+
+    start = datetime.strptime(start_str, "%Y-%m-%d")
+    end = datetime.strptime(end_str, "%Y-%m-%d")
+
+    # Load your rainfall data here
+    # For example, assume you have a CSV with columns: date, adm1_name, event_mm
+    df = pd.read_csv("static/data/rainfall_events.csv", parse_dates=["date"])
+
+    # Filter by date
+    df = df[(df["date"] >= start) & (df["date"] <= end)]
+
+    # Filter by admin if provided
+    if adm_name:
+        df = df[df["adm1_name"] == adm_name]
+
+    # Assign seasons
+    df["season"] = df["date"].dt.month.apply(get_season)
+    df["year"] = df["date"].dt.year
+
+    # Group by year and season
+    grouped = df.groupby(["year", "season"])["event_mm"]
+    if metric == "mean":
+        summary = grouped.mean().reset_index()
+    else:
+        summary = grouped.sum().reset_index()
+
+    # Convert to list of dicts
+    data = summary.to_dict(orient="records")
+
+    return jsonify({"data": data})
+
+
 if __name__ == "__main__":
     # Run the Flask application in debug mode
     app.run(debug=True, host="0.0.0.0", port=5000)
