@@ -112,7 +112,7 @@
         // Load classified rainfall PNG from your API
         function loadRainfallLayer() {
             const date = document.getElementById('date').value;
-            const imgUrl = `/api/classified_dekadal_anomaly/${date}`;
+            const imgUrl = `http://localhost:5000/api/classified_dekadal_anomaly/${date}`;
 
             if (rainfallLayer) map.removeLayer(rainfallLayer);
 
@@ -141,7 +141,7 @@
             const start = document.getElementById('start').value;
             const end = document.getElementById('end').value;
 
-            const url = `/api/rainfall_value_multiple?lat=${lat}&lon=${lon}&start_date=${start}&end_date=${end}`;
+            const url = `http://localhost:5000/api/rainfall_value_multiple?lat=${lat}&lon=${lon}&start_date=${start}&end_date=${end}`;
 
             try {
                 const response = await fetch(url);

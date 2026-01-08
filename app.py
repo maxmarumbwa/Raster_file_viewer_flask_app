@@ -802,6 +802,67 @@ def event_vs_lta_range():
     )
 
 
+# ========================================================================
+# Rainfall anomaly classification endpoint
+# ========================================================================
+@app.route("/api/classified_dekadal_anomaly/<date_str>")
+def classified_dekadal_anomaly(date_str):
+    """
+    Dekadal rainfall anomaly classes (%):
+    Transparent for no-data.
+    """
+    try:
+        import io
+        import numpy as np
+        import rasterio
+        from PIL import Image
+        from datetime import datetime
+        from flask import abort, send_file
+        import os
+
+        date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+        file_name = f"gsod_{date_obj.strftime('%Y%m%d')}_anom.tif"
+        file_path = os.path.join("static", "data", "derived", "anom", file_name)
+
+        if not os.path.exists(file_path):
+            abort(404, "Anomaly raster not found")
+
+        with rasterio.open(file_path) as src:
+            data = src.read(1).astype("float32")
+            nodata = src.nodata
+            mask_nodata = np.isnan(data) if nodata is None else (data == nodata)
+            if nodata is not None:
+                data[mask_nodata] = 0
+
+        # --- RGBA output ---
+        h, w = data.shape
+        out = np.zeros((h, w, 4), dtype=np.uint8)
+
+        # Set alpha 0 for no-data
+        out[..., 3] = 255
+        out[mask_nodata, 3] = 0  # fully transparent
+
+        # FEWS NET–style anomaly colors
+        out[(data <= -50)] = (103, 0, 31, 255)  # Extreme deficit
+        out[(data > -50) & (data <= -25)] = (178, 24, 43, 255)
+        out[(data > -25) & (data <= -10)] = (239, 138, 98, 255)
+        out[(data > -10) & (data <= 10)] = (240, 240, 240, 255)  # Near normal
+        out[(data > 10) & (data <= 25)] = (166, 219, 160, 255)
+        out[(data > 25) & (data <= 50)] = (90, 174, 97, 255)
+        out[(data > 50)] = (27, 120, 55, 255)
+
+        # Encode as PNG
+        buf = io.BytesIO()
+        Image.fromarray(out, mode="RGBA").save(buf, "PNG")
+        buf.seek(0)
+
+        return send_file(buf, mimetype="image/png")
+
+    except Exception as e:
+        print("Classified anomaly error:", e)
+        abort(500)
+
+
 if __name__ == "__main__":
     # Run the Flask application in debug mode
     app.run(debug=True, host="0.0.0.0", port=5000)
