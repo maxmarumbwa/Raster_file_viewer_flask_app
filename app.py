@@ -940,41 +940,37 @@ def anomaly():
     )
 
 
-# ======================================================================
-# Seasonal summary endpoint
-# ======================================================================
+# =======================================================================
+# Seasonal summary endpoint forraster
+# =======================================================================
 from flask import Flask, request, jsonify
-from datetime import datetime
-import pandas as pd
-import json
 import geopandas as gpd
 import rasterio
 from rasterio.mask import mask
+from datetime import datetime
+import numpy as np
+import glob
+import os
 
-app = Flask(__name__)
-
-# Example: Load admin polygons (GeoJSON)
+# Load admin polygons
 admin_gdf = gpd.read_file("static/data/zim_admin1.geojson")
 
 
-# Utility: assign season based on month
+# Assign season based on month
 def get_season(month):
     if month in [12, 1, 2]:
-        return "DJF"  # Summer
+        return "DJF"
     elif month in [3, 4, 5]:
-        return "MAM"  # Autumn
+        return "MAM"
     elif month in [6, 7, 8]:
-        return "JJA"  # Winter
+        return "JJA"
     else:
-        return "SON"  # Spring
+        return "SON"
 
 
-# Seasonal summary endpoint
-@app.route("/api/seasonal_summary")
-# GET /api/seasonal_summary?start_date=2001-01-01&end_date=2002-12-31&adm1_name=Harare&metric=sum
-
-
-def seasonal_summary():
+# Seasonal summary from COG rasters
+@app.route("/api/seasonal_summary_raster")
+def seasonal_summary_raster():
     """
     Query params:
     - start_date: YYYY-MM-DD
@@ -993,32 +989,68 @@ def seasonal_summary():
     start = datetime.strptime(start_str, "%Y-%m-%d")
     end = datetime.strptime(end_str, "%Y-%m-%d")
 
-    # Load your rainfall data here
-    # For example, assume you have a CSV with columns: date, adm1_name, event_mm
-    df = pd.read_csv("static/data/rainfall_events.csv", parse_dates=["date"])
-
-    # Filter by date
-    df = df[(df["date"] >= start) & (df["date"] <= end)]
-
-    # Filter by admin if provided
+    # Filter admin polygon
     if adm_name:
-        df = df[df["adm1_name"] == adm_name]
-
-    # Assign seasons
-    df["season"] = df["date"].dt.month.apply(get_season)
-    df["year"] = df["date"].dt.year
-
-    # Group by year and season
-    grouped = df.groupby(["year", "season"])["event_mm"]
-    if metric == "mean":
-        summary = grouped.mean().reset_index()
+        admin = admin_gdf[admin_gdf["ADM1_EN"] == adm_name]
+        if admin.empty:
+            return jsonify({"error": f"Admin region '{adm_name}' not found"}), 404
     else:
-        summary = grouped.sum().reset_index()
+        admin = admin_gdf
 
-    # Convert to list of dicts
-    data = summary.to_dict(orient="records")
+    # Prepare seasonal aggregation
+    seasonal_data = {}
 
-    return jsonify({"data": data})
+    # Raster files folder
+    raster_folder = "static/data/cog"
+    raster_files = sorted(glob.glob(os.path.join(raster_folder, "gsod_*_cog.tif")))
+
+    for rf in raster_files:
+        basename = os.path.basename(rf)
+        try:
+            # Extract date from filename: gsod_YYYYMMDD_cog.tif
+            date = datetime.strptime(basename[5:13], "%Y%m%d")
+        except:
+            continue
+
+        if date < start or date > end:
+            continue
+
+        year = date.year
+        season = get_season(date.month)
+
+        # Open raster and mask by admin polygon
+        with rasterio.open(rf) as src:
+            out_image, out_transform = mask(src, admin.geometry, crop=True)
+            data = out_image[0].astype(float)
+            data[data == src.nodata] = np.nan
+            mean_val = np.nanmean(data)
+            if np.isnan(mean_val):
+                mean_val = 0
+
+        # Aggregate
+        if year not in seasonal_data:
+            seasonal_data[year] = {}
+        if season not in seasonal_data[year]:
+            seasonal_data[year][season] = []
+
+        seasonal_data[year][season].append(mean_val)
+
+    # Compute final seasonal summary
+    final_summary = []
+    for year, seasons in seasonal_data.items():
+        for season, values in seasons.items():
+            if metric == "mean":
+                val = float(np.nanmean(values))
+            else:
+                val = float(np.nansum(values))
+            final_summary.append(
+                {"year": year, "season": season, "event_mm": round(val, 2)}
+            )
+
+    # Sort by year and season
+    final_summary = sorted(final_summary, key=lambda x: (x["year"], x["season"]))
+
+    return jsonify({"data": final_summary})
 
 
 if __name__ == "__main__":
